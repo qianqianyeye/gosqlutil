@@ -52,15 +52,21 @@ example:
   result:
   <nil>
 select * from t_game where id not in  ('dsaf','131','132','133','134','135')  AND status= '0' AND name like '"%麻将%"' AND region_id> '0' AND id!='130' OR name like '"%北京%"'
+	
 <nil>
 select id,name from t_game where id=83 or id=84 and name ='贵阳捉鸡' group by id,region_id having (id>1) order by id desc limit 0,10 
+	
 <nil>
 select id from t_game where id not in  ('dsaf','131','132','133','134','135')  AND status= '0' AND name like '"%麻将%"' AND region_id> '0' AND id!='130' OR name like '"%北京%"'
+	
 <nil>
 insert into user  (id,user_name,pass_word,create_time,status) values ('0','ceshi','ceshi','2018-10-18 18:00:00','0') 
+	
 <nil>
 update user  SET id='0',user_name='ceshi',pass_word='ceshi',create_time='2018-10-18 18:00:00',status='0' where id=1 
+	
 <nil>
 delete from user where id=1 
+	
 <nil>
 insert into user (id,user_name,pass_word,create_time,status)  values ('0','ceshi','ceshi','2018-10-18 18:00:00','0'),('0','ceshi2','ceshi2','2018-10-18 18:00:22','0')
