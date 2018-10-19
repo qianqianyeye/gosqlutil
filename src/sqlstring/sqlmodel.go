@@ -21,10 +21,12 @@ type SqlModel struct {
 	havingsql    string
 	orsql        string
 	joinsql      string
+	betweensql   string
 
 	insertsql    string
 	updatesql    string
 	deletesql    string
+
 }
 
 func (sqlModel *SqlModel)Find(args...interface{}) *SqlModel{
@@ -100,14 +102,38 @@ func (sqlModel *SqlModel)ISToL(sql string,location string) *SqlModel {
 	}
 	return sqlModel
 }
+func (sqlModel *SqlModel) And(args...interface{}) *SqlModel{
+	if len(args)==0 {
+		return sqlModel
+	}
+	for _,v:=range args {
+		sqlModel.wheresql+= " and "+fmt.Sprint(v)
+	}
+	return sqlModel
+}
+
+func (sqlModel *SqlModel) Or(args... interface{}) *SqlModel{
+	if len(args)==0 {
+		return sqlModel
+	}
+	for _,v:=range args {
+		sqlModel.wheresql+= " or "+fmt.Sprint(v)
+	}
+	return sqlModel
+}
+
 func (sqlModel *SqlModel)Where(where map[string]interface{},operation string) *SqlModel  {
 	for k, v := range where {
 		ks := strings.Split(k, " ")
 		if len(ks) > 2 {
-			if ks[1]!="not" && ks[2]!="in"{
+			if len(ks)>3 {
 				return sqlModel
 			}
-			if len(ks)>3 {
+			if ks[1]=="not"&&ks[2]=="in" {
+
+			}else if ks[1]=="not"&&ks[2]=="between" {
+
+			}else {
 				return sqlModel
 			}
 		}
@@ -156,23 +182,45 @@ func (sqlModel *SqlModel)Where(where map[string]interface{},operation string) *S
 				break
 			case "in":
 				if len(fmt.Sprint(v))<2{
-					sqlModel.err=errors.New("parms must be arr")
+					sqlModel.err=errors.New("in parms must be arr")
 					break
 				}
 				s:=getinstr(v)
 				sqlModel.wheresql += fmt.Sprint(k, " in ("+s+") ")
 				break
+			case "between":
+				if len(fmt.Sprint(v))<2{
+					sqlModel.err=errors.New("between parms must be arr")
+					break
+				}
+				s:=getbetweenstr(v)
+				sqlModel.wheresql += fmt.Sprint(k," between ("+s+") ")
+				break
 			case "like":
 				sqlModel.wheresql += fmt.Sprint(k, " like '"+fmt.Sprint(v)+"'" )
 			}
+			break
 			case 3:
-				if len(fmt.Sprint(v))<2{
-					sqlModel.err=errors.New("parms must be arr")
+				k = ks[1]+" "+ks[2]
+				switch k {
+				case "not in":
+					if len(fmt.Sprint(v))<2{
+						sqlModel.err=errors.New("parms must be arr")
+						break
+					}
+					s:=getinstr(v)
+					sqlModel.wheresql += fmt.Sprint(ks[0]+" "+k, "  ("+s+") ")
+					break
+				case "not between":
+					if len(fmt.Sprint(v))<2{
+						sqlModel.err=errors.New("parms must be arr")
+						break
+					}
+					s:=getbetweenstr(v)
+					sqlModel.wheresql += fmt.Sprint(ks[0]+" "+k, "  ("+s+") ")
 					break
 				}
-				s:=getinstr(v)
-				sqlModel.wheresql += fmt.Sprint(k, "  ("+s+") ")
-			break
+				break
 		}
 	}
 	return sqlModel
@@ -190,6 +238,23 @@ func getinstr(v interface{})  string{
 	default:
 		s=fmt.Sprint(v)
 		s =strings.Replace(flsub(s)," ",",",-1)
+		break
+	}
+	return s
+}
+
+func getbetweenstr(v interface{})string  {
+	s:=""
+	switch v.(type) {
+	case []string:
+		for _,value:=range v.([]string){
+			s+=" '"+value+"' and"
+		}
+		s=deleteLastNString(s,3)
+		break
+	default:
+		s=fmt.Sprint(v)
+		s =strings.Replace(flsub(s)," "," and ",-1)
 		break
 	}
 	return s
@@ -263,6 +328,9 @@ func (sql *SqlModel)QueryBuild() (string,error) {
 	result:=sql.findsql+sql.tablesql
 	if sql.wheresql!="" {
 		result+="where "+sql.wheresql
+		//if sql.betweensql!="" {
+		//	result+=sql.betweensql
+		//}
 	}
 	result+=sql.groupsql+sql.havingsql+sql.ordersql+sql.limitsql
 	return result,nil
