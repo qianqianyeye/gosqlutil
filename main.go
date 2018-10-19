@@ -27,14 +27,30 @@ func main()  {
 		"name like":`"%北京%"`,
 	}
 
+	query,_:=sqlutil.Sql().Table("user").Find().QueryBuild()
+	fmt.Println(query)
+
 	tgame,err:=sqlutil.Sql().Table("t_game").Find().Where(andmap,"and").Where(ormap,"or").QueryBuild()
 	fmt.Println(err)
 	fmt.Println(tgame)
 
-	querystr,err:=sqlutil.Sql().Table("t_game").Find().RSToL("id=83 or id=84 and name ='贵阳捉鸡'","where").
+	//RSToL 替代某个位置的sql语句
+	querystr,err:=sqlutil.Sql().Table("t_game").Find("id,name").RSToL("id=83 or id=84 and name ='贵阳捉鸡'","where").
 		          Group("id,region_id").Having("id>1").Order("id","desc").Limit(0,10).QueryBuild()
 	fmt.Println(err)
 	fmt.Println(querystr)
+
+	//ISToL 拼接某个位置的sql语句
+	querystr2,err:=sqlutil.Sql().Table("t_game").Find("id,name").RSToL("name ='贵阳捉鸡'","where").ISToL("and id=83 or id=84 ","where").
+		Group("id,region_id").Having("id>1").Order("id","desc").Limit(0,10).QueryBuild()
+	fmt.Println(err)
+	fmt.Println(querystr2)
+
+	querystr3,err:=sqlutil.Sql().Table("t_game").Find("id,name").Where(andmap,"and").ISToL("and id=83 or id=84 ","where").
+		Group("id,region_id").Having("id>1").Order("id","desc").Limit(0,10).QueryBuild()
+	fmt.Println(err)
+	fmt.Println("q3:"+querystr3)
+
 
 	test,err:=sqlutil.Sql().Where(andmap,"and").Where(ormap,"or").Find("id").Table("t_game").QueryBuild()
 	fmt.Println(err)
@@ -56,8 +72,10 @@ func main()  {
 	var users []User
 	user2 := User{UserName:"ceshi2",PassWord:"ceshi2",CreateTime:"2018-10-18 18:00:22"}
 	users=append(users,user)
-	users=append(users,user2)
-	batchinsert,err:=sqlutil.Sql().Table("user").BatchInsert(users,"update_time","delete_time").InsertBuild()
+	for i:=0;i<100;i++ {
+		users=append(users,user2)
+	}
+	batchinsert,err:=sqlutil.Sql().Table("user").BatchInsert(users,"update_time","delete_time","id").InsertBuild()
 	fmt.Println(err)
 	fmt.Println(batchinsert)
 

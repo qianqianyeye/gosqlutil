@@ -350,6 +350,7 @@ func (sqlModel *SqlModel)BatchInsert(obj interface{},args...interface{}) *SqlMod
 	return sqlModel
 }
 
+//构建插入语句
 func (sqlModel *SqlModel)InsertBuild()(string,error)  {
 	if sqlModel.err!=nil {
 		return "",sqlModel.err
@@ -393,8 +394,7 @@ func (sqlModel *SqlModel)Update(obj interface{},args... interface{}) *SqlModel {
 	return sqlModel
 }
 
-
-
+//构建更新语句
 func (sqlModel *SqlModel)UpdateBuild()(string,error)  {
 	if sqlModel.err!=nil {
 		return "",sqlModel.err
@@ -410,6 +410,7 @@ func (sqlModel *SqlModel)UpdateBuild()(string,error)  {
 	return result,nil
 }
 
+//构建删除语句
 func (sqlModel *SqlModel)DeleteBuild() (string,error) {
 	if sqlModel.err != nil{
 		return "",sqlModel.err
