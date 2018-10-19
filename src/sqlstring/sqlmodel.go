@@ -4,9 +4,9 @@ package sqlutil
 import (
 	"fmt"
 	"strings"
-	"git.jiaxianghudong.com/go/logs"
 	"errors"
 	"reflect"
+	"git.jiaxianghudong.com/go/logs"
 )
 
 type SqlModel struct {
@@ -20,6 +20,7 @@ type SqlModel struct {
 	groupsql     string
 	havingsql    string
 	orsql        string
+	joinsql      string
 
 	insertsql    string
 	updatesql    string
@@ -71,6 +72,9 @@ func (sqlModel *SqlModel)RSToL(sql string,location string) *SqlModel  {
 	case "select":
 		sqlModel.findsql="select "+sql +" "
 		break
+	case "update":
+		sqlModel.updatesql=" SET "+"sql"+" "
+		break
 	case "having":
 		sqlModel.havingsql="having "+sql+" "
 		break
@@ -87,6 +91,9 @@ func (sqlModel *SqlModel)ISToL(sql string,location string) *SqlModel {
 	case "select":
 		sqlModel.findsql += sql +" "
 		break
+	case "update":
+		sqlModel.updatesql += sql+" "
+		break
 	case "having":
 		sqlModel.havingsql += sql+" "
 		break
@@ -97,9 +104,13 @@ func (sqlModel *SqlModel)Where(where map[string]interface{},operation string) *S
 	for k, v := range where {
 		ks := strings.Split(k, " ")
 		if len(ks) > 2 {
-			return sqlModel
+			if ks[1]!="not" && ks[2]!="in"{
+				return sqlModel
+			}
+			if len(ks)>3 {
+				return sqlModel
+			}
 		}
-
 		if sqlModel.wheresql != "" && operation == "and"{
 			sqlModel.wheresql += " AND "
 		}else if sqlModel.wheresql != "" && operation == "or" {
@@ -116,52 +127,77 @@ func (sqlModel *SqlModel)Where(where map[string]interface{},operation string) *S
 					sqlModel.wheresql += fmt.Sprint(k, " IS NULL")
 				}
 			default:
-				sqlModel.wheresql += fmt.Sprint(k, "="+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, "= '"+fmt.Sprint(v)+"'")
 			}
 			break
 		case 2:
 			k = ks[0]
 			switch ks[1] {
 			case "=":
-				sqlModel.wheresql += fmt.Sprint(k, "="+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, "= '"+fmt.Sprint(v)+"'")
 				break
 			case ">":
-				sqlModel.wheresql  += fmt.Sprint(k, ">"+fmt.Sprint(v))
+				sqlModel.wheresql  += fmt.Sprint(k, "> '"+fmt.Sprint(v)+"'")
 				break
 			case ">=":
-				sqlModel.wheresql += fmt.Sprint(k, ">="+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, ">= '"+fmt.Sprint(v)+"'")
 				break
 			case "<":
-				sqlModel.wheresql += fmt.Sprint(k, "<"+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, "< '"+fmt.Sprint(v)+"'")
 				break
 			case "<=":
-				sqlModel.wheresql += fmt.Sprint(k, "<="+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, "<= '"+fmt.Sprint(v)+"'")
 				break
 			case "!=":
-				sqlModel.wheresql += fmt.Sprint(k, "!="+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, "!='"+fmt.Sprint(v)+"'")
 				break
 			case "<>":
-				sqlModel.wheresql += fmt.Sprint(k, "!="+fmt.Sprint(v))
+				sqlModel.wheresql += fmt.Sprint(k, "!= '"+fmt.Sprint(v)+"'")
 				break
 			case "in":
-				s:=fmt.Sprint(v)
-				if len(s)<2 {
-					sqlModel.err=errors.New("sql in parm is not array!")
-					logs.Error("sql in parm is not array!")
+				if len(fmt.Sprint(v))<2{
+					sqlModel.err=errors.New("parms must be arr")
 					break
 				}
-				s =strings.Replace(flsub(s)," ",",",-1)
+				s:=getinstr(v)
 				sqlModel.wheresql += fmt.Sprint(k, " in ("+s+") ")
 				break
 			case "like":
-				sqlModel.wheresql += fmt.Sprint(k, " like "+fmt.Sprint(v) )
+				sqlModel.wheresql += fmt.Sprint(k, " like '"+fmt.Sprint(v)+"'" )
 			}
+			case 3:
+				if len(fmt.Sprint(v))<2{
+					sqlModel.err=errors.New("parms must be arr")
+					break
+				}
+				s:=getinstr(v)
+				sqlModel.wheresql += fmt.Sprint(k, "  ("+s+") ")
 			break
 		}
 	}
 	return sqlModel
 }
 
+func getinstr(v interface{})  string{
+	s:=""
+	switch v.(type) {
+	case []string:
+		for _,value:=range v.([]string){
+			s+="'"+value+"',"
+		}
+		s=deleteLastString(s)
+		break
+	default:
+		s=fmt.Sprint(v)
+		s =strings.Replace(flsub(s)," ",",",-1)
+		break
+	}
+	return s
+}
+
+func (sqlModel *SqlModel)JoinSql()  {
+
+}
 
 func (sqlModel *SqlModel)Group(args...interface{}) *SqlModel {
 	if len(args)==0 {
@@ -185,7 +221,7 @@ func (sqlModel *SqlModel)Having(args...interface{})*SqlModel {
 		str += str+ fmt.Sprint(v) +" and"
 	}
 	str = deleteLastNString(str,3)
-	sqlModel.havingsql += str+" "
+	sqlModel.havingsql += str+") "
 	return sqlModel
 }
 
@@ -219,6 +255,7 @@ func (sqlModel *SqlModel)Limit(args...int) *SqlModel{
 	return sqlModel
 }
 
+//构建查询语句
 func (sql *SqlModel)QueryBuild() (string,error) {
 	if sql.err!=nil {
 		return "",sql.err
@@ -268,6 +305,51 @@ func (sqlModel *SqlModel) Insert(obj interface{},args...interface{}) *SqlModel {
 	return sqlModel
 }
 
+//生成批量插入语句 参数传如切片类型，args指定字段不插入
+func (sqlModel *SqlModel)BatchInsert(obj interface{},args...interface{}) *SqlModel{
+	v := reflect.ValueOf(obj)
+	t := reflect.TypeOf(obj).Elem()
+
+	if v.Kind() != reflect.Slice {
+		sqlModel.err=errors.New("toslice arr not slice")
+		logs.Error("toslice arr not slice")
+		return sqlModel
+	}
+
+	argsMap:= make(map[string]interface{})
+	for _,v:=range args {
+		argsMap[fmt.Sprint(v)]=v
+	}
+	columnsql:="("
+	for i := 0; i < t.NumField(); i++ {
+		sqlfiled:=t.Field(i).Tag.Get("sql")
+		if _,ok :=argsMap[sqlfiled];ok {
+			continue
+		}
+		columnsql+=sqlfiled+","
+	}
+	columnsql=deleteLastString(columnsql)
+	columnsql +=") "
+	valuesql :=" values "
+	l := v.Len()
+	for i := 0; i < l; i++ {
+		valuesql+="("
+		values :=reflect.ValueOf(v.Index(i).Interface())
+		for i:=0;i<values.NumField();i++ {
+			sqlfiled:=t.Field(i).Tag.Get("sql")
+			if _,ok :=argsMap[sqlfiled];ok {
+				continue
+			}
+			valuesql+="'"+fmt.Sprint(values.Field(i).Interface())+"',"
+		}
+		valuesql=deleteLastString(valuesql)
+		valuesql+="),"
+	}
+	valuesql=deleteLastString(valuesql)
+	sqlModel.insertsql=columnsql+valuesql
+	return sqlModel
+}
+
 func (sqlModel *SqlModel)InsertBuild()(string,error)  {
 	if sqlModel.err!=nil {
 		return "",sqlModel.err
@@ -279,6 +361,7 @@ func (sqlModel *SqlModel)InsertBuild()(string,error)  {
 	return "insert into "+sqlModel.tablesql+sqlModel.insertsql,nil
 }
 
+//args指定字段不更新
 func (sqlModel *SqlModel)Update(obj interface{},args... interface{}) *SqlModel {
 	defer func() {
 		if e := recover(); e != nil{
@@ -309,6 +392,8 @@ func (sqlModel *SqlModel)Update(obj interface{},args... interface{}) *SqlModel {
 	sqlModel.updatesql=deleteLastString(sqlModel.updatesql)
 	return sqlModel
 }
+
+
 
 func (sqlModel *SqlModel)UpdateBuild()(string,error)  {
 	if sqlModel.err!=nil {
