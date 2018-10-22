@@ -2,7 +2,7 @@
 
 example:
 
-andmap :=map[string]interface{}{
+	andmap :=map[string]interface{}{
 		"id not in": []string{"dsaf", "131", "132","133","134","135"},
 		"status": "0",
 		"user_name like":"%测试2%",
