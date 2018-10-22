@@ -7,10 +7,10 @@ import (
 	"errors"
 	"reflect"
 	"git.jiaxianghudong.com/go/logs"
+	"git.jiaxianghudong.com/go/mysql"
 )
 
 type SqlModel struct {
-
 	err          error
 	findsql 	 string
 	tablesql     string
@@ -27,7 +27,12 @@ type SqlModel struct {
 	updatesql    string
 	deletesql    string
 
+	tx    bool  //事物
+	txsql []string //存放该事物语句
+
 }
+
+
 
 func (sqlModel *SqlModel)Find(args...interface{}) *SqlModel{
 	sqlModel.findsql = "select "
@@ -75,7 +80,7 @@ func (sqlModel *SqlModel)RSToL(sql string,location string) *SqlModel  {
 		sqlModel.findsql="select "+sql +" "
 		break
 	case "update":
-		sqlModel.updatesql=" SET "+"sql"+" "
+		sqlModel.updatesql=" SET "+sql+" "
 		break
 	case "having":
 		sqlModel.havingsql="having "+sql+" "
@@ -194,7 +199,7 @@ func (sqlModel *SqlModel)Where(where map[string]interface{},operation string) *S
 					break
 				}
 				s:=getbetweenstr(v)
-				sqlModel.wheresql += fmt.Sprint(k," between ("+s+") ")
+				sqlModel.wheresql += fmt.Sprint(k," between "+s+" ")
 				break
 			case "like":
 				sqlModel.wheresql += fmt.Sprint(k, " like '"+fmt.Sprint(v)+"'" )
@@ -320,10 +325,13 @@ func (sqlModel *SqlModel)Limit(args...int) *SqlModel{
 	return sqlModel
 }
 
-//构建查询语句
-func (sql *SqlModel)QueryBuild() (string,error) {
+//构建查询语句,val接收的结果集
+func (sql *SqlModel)QueryBuild(val interface{}) (string,error) {
 	if sql.err!=nil {
 		return "",sql.err
+	}
+	if sql.tx {
+		return "",errors.New("please use txQuerybuild")
 	}
 	result:=sql.findsql+sql.tablesql
 	if sql.wheresql!="" {
@@ -333,6 +341,11 @@ func (sql *SqlModel)QueryBuild() (string,error) {
 		//}
 	}
 	result+=sql.groupsql+sql.havingsql+sql.ordersql+sql.limitsql
+
+	err:=mysql.Query(result,val)
+	if err!=nil {
+		return result,err
+	}
 	return result,nil
 }
 
@@ -419,15 +432,23 @@ func (sqlModel *SqlModel)BatchInsert(obj interface{},args...interface{}) *SqlMod
 }
 
 //构建插入语句
-func (sqlModel *SqlModel)InsertBuild()(string,error)  {
+func (sqlModel *SqlModel)InsertBuild()(string,int64,error)  {
 	if sqlModel.err!=nil {
-		return "",sqlModel.err
+		return "",0,sqlModel.err
 	}
 	if sqlModel.tablesql=="" {
 		sqlModel.err=errors.New("please add table name")
-		return "",sqlModel.err
+		return "",0,sqlModel.err
 	}
-	return "insert into "+sqlModel.tablesql+sqlModel.insertsql,nil
+	if sqlModel.tx {
+		return "",0,errors.New("please use TxInsertBuild")
+	}
+	result:="insert into "+sqlModel.tablesql+sqlModel.insertsql
+	lastid,err:=mysql.Insert(result)
+	if err!=nil {
+		return result,lastid,err
+	}
+	return result,lastid,nil
 }
 
 //args指定字段不更新
@@ -463,35 +484,117 @@ func (sqlModel *SqlModel)Update(obj interface{},args... interface{}) *SqlModel {
 }
 
 //构建更新语句
-func (sqlModel *SqlModel)UpdateBuild()(string,error)  {
+func (sqlModel *SqlModel)UpdateBuild()(string,int64,error)  {
 	if sqlModel.err!=nil {
-		return "",sqlModel.err
+		return "",0,sqlModel.err
 	}
 	if sqlModel.tablesql=="" {
 		sqlModel.err=errors.New("please add table name")
-		return "",sqlModel.err
+		return "",0,sqlModel.err
+	}
+	if sqlModel.tx {
+		return "",0,errors.New("please use TxUpdateBuild")
 	}
 	result :="update "+sqlModel.tablesql+sqlModel.updatesql
 	if sqlModel.wheresql!="" {
 		result += " where "+sqlModel.wheresql
 	}
-	return result,nil
+
+	rowseffect,err:=mysql.Exec(result)
+	if err!=nil {
+		return result,rowseffect,err
+	}
+	return result,rowseffect,nil
 }
 
 //构建删除语句
-func (sqlModel *SqlModel)DeleteBuild() (string,error) {
+func (sqlModel *SqlModel)DeleteBuild() (string,int64,error) {
 	if sqlModel.err != nil{
-		return "",sqlModel.err
+		return "",0,sqlModel.err
 	}
 	if sqlModel.tablesql=="" {
 		sqlModel.err=errors.New("please add table name")
-		return "",sqlModel.err
+		return "",0,sqlModel.err
 	}
 	if sqlModel.wheresql=="" {
 		sqlModel.err=errors.New("please add where condition")
-		return "",sqlModel.err
+		return "",0,sqlModel.err
 	}
-	return "delete from "+sqlModel.tablesql+"where "+sqlModel.wheresql,nil
+	if sqlModel.tx {
+		return "",0,errors.New("please use TxDeleteBuild")
+	}
+	result :="delete from "+sqlModel.tablesql+"where "+sqlModel.wheresql
+	rowseffect,err:=mysql.Exec(result)
+	if err!=nil {
+		return result,rowseffect,err
+	}
+	return result,rowseffect,nil
+}
+
+//构建删除语句
+func (sqlModel *SqlModel)TxDeleteBuild() *SqlModel {
+	result :="delete from "+sqlModel.tablesql+"where "+sqlModel.wheresql
+	if sqlModel.tx {
+		sqlModel.txsql=append(sqlModel.txsql,result)
+		return sqlModel
+	}
+	sqlModel.err=errors.New("please start tx!(TxStart())")
+	return sqlModel
+}
+
+func (sqlModel *SqlModel)TxUpdateBuild()*SqlModel  {
+	result :="update "+sqlModel.tablesql+sqlModel.updatesql
+	if sqlModel.wheresql!="" {
+		result += " where "+sqlModel.wheresql
+	}
+	if sqlModel.tx {
+		sqlModel.txsql=append(sqlModel.txsql,result)
+		return sqlModel
+	}
+	sqlModel.err=errors.New("please start tx!(TxStart())")
+	return sqlModel
+}
+
+//构建插入语句
+func (sqlModel *SqlModel)TxInsertBuild()*SqlModel  {
+	result:="insert into "+sqlModel.tablesql+sqlModel.insertsql
+	if sqlModel.tx {
+		sqlModel.txsql=append(sqlModel.txsql,result)
+		return sqlModel
+	}
+	sqlModel.err=errors.New("please start tx!(TxStart())")
+	return sqlModel
+}
+
+func (sqlModel *SqlModel)TxStart() *SqlModel  {
+	sqlModel.tx=true
+	return sqlModel
+}
+
+func (sqlModel *SqlModel)TxBuild() ([]string,error)  {
+	if len(sqlModel.txsql)==0 {
+		return nil,nil
+	}
+	err:=mysql.ExecTrans(sqlModel.txsql)
+	return sqlModel.txsql,err
+}
+
+//构建查询语句,val接收的结果集
+func (sql *SqlModel)TxQueryBuild(val interface{}) *SqlModel {
+	if sql.err!=nil {
+		return sql
+	}
+	result:=sql.findsql+sql.tablesql
+	if sql.wheresql!="" {
+		result+="where "+sql.wheresql
+	}
+	result+=sql.groupsql+sql.havingsql+sql.ordersql+sql.limitsql
+	if sql.tx {
+		sql.txsql=append(sql.txsql,result)
+		return sql
+	}
+	sql.err=errors.New("please start tx!(TxStart())")
+	return sql
 }
 
 //删除字符串最后n个
